@@ -1,0 +1,11 @@
+body { background-color: #121212; color: #ffffff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; margin: 0; padding: 20px; }
+.container { max-width: 600px; margin: 0 auto; }
+.status-panel { background-color: #1e1e1e; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+#kalinlik-deger { color: #00E676; font-size: 24px; font-weight: bold; }
+button { padding: 15px 30px; font-size: 16px; font-weight: bold; background-color: #00E676; color: #121212; border: none; border-radius: 8px; cursor: pointer; width: 100%; transition: 0.3s; }
+button:active { background-color: #00C853; }
+.video-container { margin-top: 20px; position: relative; }
+video { display: none; } /* Ham videoyu gizle */
+canvas { width: 100%; border: 2px solid #00E676; border-radius: 8px; background-color: #000; }
+.connected { color: #00E676; }
+.disconnected { color: #ff5252; }
