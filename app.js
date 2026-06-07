@@ -131,10 +131,41 @@ function goruntuIsle() {
         }
     }
 
-    // Orijinal görüntüyü ekrana basmak için src'yi dst'ye kopyala
+  // Orijinal görüntüyü ekrana basmak için src'yi dst'ye kopyala
     src.copyTo(dst);
 
-   // --- YENİ KALİBRASYON VE MOTOR ALGORİTMASI ---
+    // EĞER EKRANDA BİR NESNE BULUNDUYSA İŞLEMLERİ YAP
+    if (secilenKonturIndex !== -1) {
+        
+        // Nesnenin sınırlarını (Bounding Box) al
+        let rect = cv.boundingRect(contours.get(secilenKonturIndex));
+        
+        // NESNENİN EN İNCE YÖNÜNÜ BUL (Kalınlık her zaman kısa kenardır)
+        let kalinlikPiksel = Math.min(rect.width, rect.height);
+        let isHorizontal = rect.width > rect.height; // Nesne yatay mı duruyor?
+        
+        let color = new cv.Scalar(0, 230, 118, 255); // Yeşil renk
+        
+        // Kutu yerine Dijital Kumpas çizgileri çekiyoruz
+        if (isHorizontal) {
+            // Nesne yataysa (filament gibi), üstüne ve altına yatay çizgi çek
+            let ustSol = new cv.Point(rect.x, rect.y);
+            let ustSag = new cv.Point(rect.x + rect.width, rect.y);
+            let altSol = new cv.Point(rect.x, rect.y + rect.height);
+            let altSag = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+            cv.line(dst, ustSol, ustSag, color, 3);
+            cv.line(dst, altSol, altSag, color, 3);
+        } else {
+            // Nesne dikeyse, sağına ve soluna dikey çizgi çek
+            let solUst = new cv.Point(rect.x, rect.y);
+            let solAlt = new cv.Point(rect.x, rect.y + rect.height);
+            let sagUst = new cv.Point(rect.x + rect.width, rect.y);
+            let sagAlt = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+            cv.line(dst, solUst, solAlt, color, 3);
+            cv.line(dst, sagUst, sagAlt, color, 3);
+        }
+
+        // --- YENİ KALİBRASYON VE MOTOR ALGORİTMASI ---
         
         // 1 Pikselin mm karşılığı (Sigara testine göre 5.5 / 30 = 0.1833)
         const PIKSEL_CAPPAN = 0.1833; 
@@ -163,10 +194,11 @@ function goruntuIsle() {
             veriGonder(parseFloat(mmHesabi), motorDurumu);
             sonGonderimZamani = Date.now();
         }
+    } // İF DÖNGÜSÜ BURADA KAPANMAK ZORUNDA!
 
     // İşlenmiş görüntüyü canvas'a yaz
     cv.imshow('islemEkrani', dst);
 
-    // Döngüyü tekrarla
+    // Döngüyü tekrarla (Akışı devam ettir)
     requestAnimationFrame(goruntuIsle);
 }
