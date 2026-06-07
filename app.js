@@ -11,8 +11,8 @@ let streaming = false;
 let src, dst, gray, blur, edges, M, contours, hierarchy;
 
 // ---- 1. MQTT WEBSOCKET KURULUMU ----
-// HiveMQ'nun WebSocket portu 8000'dir. (ESP32 standart TCP 1883 kullanır, broker ikisini birleştirir)
-let client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
+// HiveMQ'nun WebSocket portu 8884'tür. (ESP32 standart TCP 1883 kullanır, broker ikisini birleştirir)
+let client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
 
 client.onConnectionLost = onConnectionLost;
 
@@ -135,24 +135,39 @@ function goruntuIsle() {
     src.copyTo(dst);
 
     if (secilenKonturIndex !== -1) {
-        // En büyük nesnenin sınırlarını (Bounding Box) çiz
         let rect = cv.boundingRect(contours.get(secilenKonturIndex));
-        let point1 = new cv.Point(rect.x, rect.y);
-        let point2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
         
-        // Ekrana yeşil kutu çiz
-        cv.rectangle(dst, point1, point2, [0, 230, 118, 255], 2);
+        // NESNENİN EN İNCE YÖNÜNÜ BUL (Kalınlık her zaman kısa kenardır)
+        let kalinlikPiksel = Math.min(rect.width, rect.height);
+        let isHorizontal = rect.width > rect.height; // Nesne yatay mı duruyor?
         
-        // Kalınlık (piksel cinsinden)
-        let kalinlikPiksel = rect.height; 
+        let color = new cv.Scalar(0, 230, 118, 255); // Yeşil renk
         
-        // Gelişmiş bir kalibrasyon yapana kadar şimdilik pikselleri yapay bir milimetreye çevirelim
-        // ÖRN: 50 piksel = 1.75mm ise (Bu katsayı kameraya göre değişecek)
+        // Kutu yerine Dijital Kumpas çizgileri çekiyoruz
+        if (isHorizontal) {
+            // Nesne yataysa (filament gibi), üstüne ve altına yatay çizgi çek
+            let ustSol = new cv.Point(rect.x, rect.y);
+            let ustSag = new cv.Point(rect.x + rect.width, rect.y);
+            let altSol = new cv.Point(rect.x, rect.y + rect.height);
+            let altSag = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+            cv.line(dst, ustSol, ustSag, color, 3);
+            cv.line(dst, altSol, altSag, color, 3);
+        } else {
+            // Nesne dikeyse, sağına ve soluna dikey çizgi çek
+            let solUst = new cv.Point(rect.x, rect.y);
+            let solAlt = new cv.Point(rect.x, rect.y + rect.height);
+            let sagUst = new cv.Point(rect.x + rect.width, rect.y);
+            let sagAlt = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+            cv.line(dst, solUst, solAlt, color, 3);
+            cv.line(dst, sagUst, sagAlt, color, 3);
+        }
+        
+        // KALİBRASYON (Şimdilik 1.75mm için temsili oran)
+        // İleride gerçek filament makineye takıldığında bu 50 değerini değiştireceğiz
         let mmHesabi = (kalinlikPiksel * (1.75 / 50)).toFixed(2);
-        
         kalinlikText.innerHTML = mmHesabi + " mm";
 
-        // ESP32'yi boğmamak için veriyi saniyede 1 kez (1000ms) gönderiyoruz
+        // ESP32'ye Motoru Güçlendir/Yavaşlat Verisini Gönder
         if (Date.now() - sonGonderimZamani > 1000) {
             veriGonder(parseFloat(mmHesabi));
             sonGonderimZamani = Date.now();
