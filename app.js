@@ -38,16 +38,16 @@ function onConnectionLost(responseObject) {
     }
 }
 
-// MQTT Veri Gönderme Fonksiyonu (Motoru Güçlendirecek/Yavaşlatacak Veri)
-function veriGonder(kalinlik) {
+// MQTT Veri Gönderme Fonksiyonu
+function veriGonder(kalinlik, durum) {
     if (client.isConnected()) {
-        // ESP32'nin beklediği JSON formatı
         let payload = JSON.stringify({ 
             "kalinlik": kalinlik,
+            "motor_aksiyonu": durum,
             "kaynak": "Edge_Phone"
         });
         let message = new Paho.MQTT.Message(payload);
-        message.destinationName = "pet2print/telemetry"; // ESP32'nin dinlediği Topic
+        message.destinationName = "pet2print/telemetry"; 
         client.send(message);
     }
 }
@@ -134,45 +134,35 @@ function goruntuIsle() {
     // Orijinal görüntüyü ekrana basmak için src'yi dst'ye kopyala
     src.copyTo(dst);
 
-    if (secilenKonturIndex !== -1) {
-        let rect = cv.boundingRect(contours.get(secilenKonturIndex));
+   // --- YENİ KALİBRASYON VE MOTOR ALGORİTMASI ---
         
-        // NESNENİN EN İNCE YÖNÜNÜ BUL (Kalınlık her zaman kısa kenardır)
-        let kalinlikPiksel = Math.min(rect.width, rect.height);
-        let isHorizontal = rect.width > rect.height; // Nesne yatay mı duruyor?
+        // 1 Pikselin mm karşılığı (Sigara testine göre 5.5 / 30 = 0.1833)
+        const PIKSEL_CAPPAN = 0.1833; 
+        let kalinlikFloat = kalinlikPiksel * PIKSEL_CAPPAN;
+        let mmHesabi = kalinlikFloat.toFixed(2);
         
-        let color = new cv.Scalar(0, 230, 118, 255); // Yeşil renk
-        
-        // Kutu yerine Dijital Kumpas çizgileri çekiyoruz
-        if (isHorizontal) {
-            // Nesne yataysa (filament gibi), üstüne ve altına yatay çizgi çek
-            let ustSol = new cv.Point(rect.x, rect.y);
-            let ustSag = new cv.Point(rect.x + rect.width, rect.y);
-            let altSol = new cv.Point(rect.x, rect.y + rect.height);
-            let altSag = new cv.Point(rect.x + rect.width, rect.y + rect.height);
-            cv.line(dst, ustSol, ustSag, color, 3);
-            cv.line(dst, altSol, altSag, color, 3);
-        } else {
-            // Nesne dikeyse, sağına ve soluna dikey çizgi çek
-            let solUst = new cv.Point(rect.x, rect.y);
-            let solAlt = new cv.Point(rect.x, rect.y + rect.height);
-            let sagUst = new cv.Point(rect.x + rect.width, rect.y);
-            let sagAlt = new cv.Point(rect.x + rect.width, rect.y + rect.height);
-            cv.line(dst, solUst, solAlt, color, 3);
-            cv.line(dst, sagUst, sagAlt, color, 3);
-        }
-        
-        // KALİBRASYON (Şimdilik 1.75mm için temsili oran)
-        // İleride gerçek filament makineye takıldığında bu 50 değerini değiştireceğiz
-        let mmHesabi = (kalinlikPiksel * (1.75 / 50)).toFixed(2);
-        kalinlikText.innerHTML = mmHesabi + " mm";
+        let motorDurumu = "SABIT";
 
-        // ESP32'ye Motoru Güçlendir/Yavaşlat Verisini Gönder
+        // +- 0.05 mm Tolerans Mantığı
+        if (kalinlikFloat > 1.80) {
+            motorDurumu = "HIZLANDIR"; // Çok kalın, germek için motoru hızlandır
+            kalinlikText.style.color = "#ff5252"; // Ekranda yazıyı Kırmızı yap
+        } else if (kalinlikFloat < 1.70) {
+            motorDurumu = "YAVASLAT"; // Çok ince, birikmesi için motoru yavaşlat
+            kalinlikText.style.color = "#2196F3"; // Ekranda yazıyı Mavi yap
+        } else {
+            motorDurumu = "SABIT"; // İdeal Aralık (1.70 - 1.80)
+            kalinlikText.style.color = "#00E676"; // Ekranda yazıyı Yeşil yap
+        }
+
+        // Arayüzü güncelle (Örn: "1.75 mm (SABIT)")
+        kalinlikText.innerHTML = mmHesabi + " mm (" + motorDurumu + ")";
+
+        // ESP32'ye Saniyede 1 Kez Hem Kalınlığı Hem Emri Gönder
         if (Date.now() - sonGonderimZamani > 1000) {
-            veriGonder(parseFloat(mmHesabi));
+            veriGonder(parseFloat(mmHesabi), motorDurumu);
             sonGonderimZamani = Date.now();
         }
-    }
 
     // İşlenmiş görüntüyü canvas'a yaz
     cv.imshow('islemEkrani', dst);
