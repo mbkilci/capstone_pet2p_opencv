@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PET2Print - Edge Vision</title>
+    <style>
+        body { background-color: #121212; color: white; font-family: sans-serif; text-align: center; }
+        video { display: none; } /* Orijinal videoyu gizle, sadece işlenmiş hali göstereceğiz */
+        canvas { border: 2px solid #4CAF50; border-radius: 8px; margin-top: 10px; max-width: 100%; }
+        button { padding: 15px 30px; font-size: 18px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h2>PET2Print Optik Ölçüm</h2>
+    <p>Hedef: 1.75mm | Anlık: <span id="kalinlik-deger" style="color:#4CAF50; font-weight:bold;">0.00 mm</span></p>
+    
+    <button id="baslatBtn">Kamerayı Başlat</button>
+    <br>
+    
+    <video id="kamera" autoplay playsinline></video>
+    <canvas id="islemEkrani"></canvas>
+
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
+    <script>
+        let video = document.getElementById('kamera');
+        let canvas = document.getElementById('islemEkrani');
+        let ctx = canvas.getContext('2d');
+        let opencvHazir = false;
+
+        // OpenCV kütüphanesi yüklendiğinde tetiklenir
+        function onOpenCvReady() {
+            opencvHazir = true;
+            console.log("OpenCV.js başarıyla yüklendi!");
+        }
+
+        // Butona basıldığında kamerayı aç (Telefonda arka kamerayı zorlar)
+        document.getElementById('baslatBtn').addEventListener('click', () => {
+            if (!opencvHazir) {
+                alert("OpenCV henüz yüklenmedi, 1-2 saniye bekleyin.");
+                return;
+            }
+
+            // Arka kamerayı (environment) açma isteği
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment", width: 640, height: 480 }, 
+                audio: false 
+            })
+            .then(function(stream) {
+                video.srcObject = stream;
+                video.play();
+                
+                // Video oynamaya başladığında kareleri yakalamaya başla
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    requestAnimationFrame(goruntuIsle);
+                };
+            })
+            .catch(function(err) {
+                console.log("Kamera izni reddedildi veya hata oluştu: " + err);
+                alert("Kameraya erişilemedi!");
+            });
+        });
+
+        // Saniyede 30 kez çalışacak olan ana döngü
+        function goruntuIsle() {
+            // Şimdilik sadece videoyu canvas'a kopyalıyoruz
+            // Bir sonraki adımda buraya Canny Edge Detection (Kenar bulma) algoritmamızı yazacağız!
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Döngüyü devam ettir
+            requestAnimationFrame(goruntuIsle);
+        }
+    </script>
+</body>
+</html>
