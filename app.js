@@ -57,28 +57,41 @@ mqttBaglan();
 
 
 // ---- 2. OPENCV.JS VE KAMERA İŞLEMLERİ ----
+// ---- 2. OPENCV.JS VE KAMERA İŞLEMLERİ ----
+let currentStream = null;
+let isTorchOn = false;
+
 function onOpenCvReady() {
     opencvHazir = true;
     console.log("OpenCV.js yüklendi.");
 }
 
-document.getElementById('baslatBtn').addEventListener('click', () => {
-    if (!opencvHazir) {
-        alert("OpenCV yükleniyor, lütfen bekleyin...");
-        return;
+// Kamerayı belirli bir lens ID'si ile başlatan fonksiyon
+async function kamerayiBaslat(deviceId = null) {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop()); // Eski kamerayı kapat
     }
 
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 }, audio: false })
-        .then(function(stream) {
-            video.srcObject = stream;
-            video.play();
-            streaming = true;
+    let constraints = {
+        video: deviceId ? { deviceId: { exact: deviceId }, width: 640, height: 480 } : { facingMode: "environment", width: 640, height: 480 },
+        audio: false
+    };
+
+    try {
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+        video.play();
+        streaming = true;
+
+        // Flaş özelliğini otomatik açmayı dene
+        flasiAcKapat(true);
+
+        video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                // Matrisleri bellekte başlat
+            // Eğer ilk defa çalışıyorsa matrisleri oluştur
+            if (!src) {
                 src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
                 dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
                 gray = new cv.Mat();
@@ -87,16 +100,76 @@ document.getElementById('baslatBtn').addEventListener('click', () => {
                 contours = new cv.MatVector();
                 hierarchy = new cv.Mat();
                 M = cv.Mat.ones(5, 5, cv.CV_8U);
-
                 requestAnimationFrame(goruntuIsle);
-            };
-        })
-        .catch(function(err) {
-            alert("Kamera izni reddedildi!");
-        });
+            }
+        };
+
+        // Eğer deviceId yoksa (ilk açılış), kameraları listele
+        if (!deviceId) kameralariListele();
+
+    } catch (err) {
+        alert("Kamera başlatılamadı: " + err.message);
+    }
+}
+
+// Cihazdaki tüm fiziksel lensleri bulup listeye ekleyen fonksiyon
+async function kameralariListele() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    const secici = document.getElementById('kameraSecici');
+    
+    secici.innerHTML = '';
+    
+    videoDevices.forEach((device, index) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        // Telefonlar genelde lens isimlerini "Back Camera 1, Ultra Wide" gibi verir
+        option.text = device.label || `Kamera Lens ${index + 1}`;
+        secici.appendChild(option);
+    });
+
+    document.getElementById('ekstraKontroller').style.display = "flex";
+}
+
+// Yeni lens seçildiğinde kamerayı o lense kilitle
+document.getElementById('kameraSecici').addEventListener('change', (e) => {
+    kamerayiBaslat(e.target.value);
+});
+
+// Flaş Aç/Kapat Fonksiyonu
+async function flasiAcKapat(zorunluDurum = null) {
+    if (!currentStream) return;
+    const track = currentStream.getVideoTracks()[0];
+    const capabilities = track.getCapabilities();
+
+    // Cihaz flaş kontrolünü destekliyorsa
+    if (capabilities.torch) {
+        isTorchOn = zorunluDurum !== null ? zorunluDurum : !isTorchOn;
+        try {
+            await track.applyConstraints({ advanced: [{ torch: isTorchOn }] });
+            document.getElementById('flasBtn').innerText = isTorchOn ? "Flaşı Kapat" : "Flaş Aç";
+            document.getElementById('flasBtn').style.backgroundColor = isTorchOn ? "#ffffff" : "#FFC107";
+        } catch (err) {
+            console.error("Flaş kontrol hatası:", err);
+        }
+    }
+}
+
+// Flaş Butonu Tıklama
+document.getElementById('flasBtn').addEventListener('click', () => flasiAcKapat());
+
+// Ana Başlat Butonu Tıklama
+document.getElementById('baslatBtn').addEventListener('click', () => {
+    if (!opencvHazir) {
+        alert("OpenCV yükleniyor, lütfen bekleyin...");
+        return;
+    }
+    document.getElementById('baslatBtn').style.display = "none"; // Başlat butonunu gizle
+    kamerayiBaslat(); // Varsayılan arka kamerayla başla
 });
 
 let sonGonderimZamani = Date.now();
+// ... (Buradan sonrası goruntuIsle() fonksiyonu ile aynen devam ediyor, oraya dokunmuyoruz) ...
 
 function goruntuIsle() {
     if (!streaming) return;
