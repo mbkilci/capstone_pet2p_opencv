@@ -7,6 +7,13 @@ let mqttDurum = document.getElementById('mqtt-durum');
 let opencvHazir = false;
 let streaming = false;
 
+// --- YENİ KIRPMA (CROP) AYARLARI ---
+// Bu değerlerle oynayarak pencereyi istediğin gibi şekillendirebilirsin
+const CROP_X = 0.30; // Soldan ve sağdan %30 atla (Ortadaki %40'ı alır)
+const CROP_Y = 0.25; // Üstten ve alttan %25 atla (Ortadaki %50'yi alır)
+const CROP_W = 1.0 - (CROP_X * 2);
+const CROP_H = 1.0 - (CROP_Y * 2);
+
 // OpenCV Değişkenleri
 let src, dst, gray, blur, edges, M, contours, hierarchy;
 
@@ -22,7 +29,6 @@ function mqttBaglan() {
 function onConnect() {
     mqttDurum.innerHTML = "Bağlı";
     mqttDurum.className = "connected";
-    console.log("MQTT Broker'a bağlanıldı!");
 }
 
 function onConnectionLost(responseObject) {
@@ -76,12 +82,12 @@ async function kamerayiBaslat(deviceId = null) {
         flasiAcKapat(true);
 
         video.onloadedmetadata = () => {
-            // YENİLİK 1: Canvas yüksekliğini %50 daraltıyoruz (Barkod okuyucu stili)
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight / 2; 
+            // Canvas boyutunu yeni daraltılmış oranlara göre ayarlıyoruz
+            canvas.width = video.videoWidth * CROP_W;
+            canvas.height = video.videoHeight * CROP_H; 
             
             if (!src) {
-                // Matrisler artık bu daraltılmış yeni boyuta göre oluşuyor (Performans artışı)
+                // Matrisler yeni hafif boyutlara göre oluşuyor (Büyük Performans Artışı)
                 src = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
                 dst = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
                 gray = new cv.Mat();
@@ -159,25 +165,24 @@ canvas.addEventListener('click', async (e) => {
     if (!currentStream) return;
     const track = currentStream.getVideoTracks()[0];
     
-    // Tıklanan noktanın canvas üzerindeki koordinatları
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
     
-    // Cihaza göndermek için 0.0 ile 1.0 arası normalize ediyoruz
     const normX = clickX / rect.width;
     const normY = clickY / rect.height;
 
-    // Ekranda sarı odak halkasını göstermek için değerleri kaydediyoruz
-    // Canvas'ın gerçek piksellerine çeviriyoruz (CSS boyutundan asıl boyuta)
-    odakX = (clickX / rect.width) * canvas.width;
-    odakY = (clickY / rect.height) * canvas.height;
+    odakX = normX * canvas.width;
+    odakY = normY * canvas.height;
     odakZamani = Date.now();
 
+    // Orijinal kamera sensöründeki gerçek koordinatı hesapla (Kırpmadan dolayı kayan ekseni düzeltiyoruz)
+    const sensorNormX = CROP_X + (normX * CROP_W);
+    const sensorNormY = CROP_Y + (normY * CROP_H);
+
     try {
-        // Cihazın lensine o noktaya odaklanması için donanımsal emir
         await track.applyConstraints({
-            advanced: [{ pointsOfInterest: [{ x: normX, y: normY }] }]
+            advanced: [{ pointsOfInterest: [{ x: sensorNormX, y: sensorNormY }] }]
         });
     } catch (err) {
         console.log("Manuel odaklama (donanımsal) bu cihazda desteklenmiyor.");
@@ -191,16 +196,14 @@ let sonGonderimZamani = Date.now();
 function goruntuIsle() {
     if (!streaming) return;
 
-    // YENİLİK 2: Videonun sadece "Orta %50'lik" kısmını kesip Canvas'a çiziyoruz
-    let sx = 0;
-    let sy = video.videoHeight * 0.25; // Üstten %25 atla
-    let sWidth = video.videoWidth;
-    let sHeight = video.videoHeight * 0.50; // Ortadaki %50'yi al
+    let sx = video.videoWidth * CROP_X;
+    let sy = video.videoHeight * CROP_Y; 
+    let sWidth = video.videoWidth * CROP_W;
+    let sHeight = video.videoHeight * CROP_H;
     
     ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
     src.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
 
-    // İşlemler (Artık sadece o dar alan işleniyor)
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
     cv.GaussianBlur(gray, blur, new cv.Size(7, 7), 0, 0, cv.BORDER_DEFAULT);
     cv.Canny(blur, edges, 30, 100, 3, false);
@@ -270,12 +273,11 @@ function goruntuIsle() {
         }
     }
 
-    // YENİLİK 3: Ekrana dokunulduysa Sarı Odaklama Halkasını 1 saniye boyunca göster
     if (Date.now() - odakZamani < 1000) {
         let center = new cv.Point(odakX, odakY);
         let sari = new cv.Scalar(255, 193, 7, 255);
-        cv.circle(dst, center, 30, sari, 3); // Dış halka
-        cv.circle(dst, center, 4, sari, -1); // İç nokta
+        cv.circle(dst, center, 30, sari, 3); 
+        cv.circle(dst, center, 4, sari, -1); 
     }
 
     cv.imshow('islemEkrani', dst);
