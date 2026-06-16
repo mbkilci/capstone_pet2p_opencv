@@ -7,15 +7,16 @@ let mqttDurum = document.getElementById('mqtt-durum');
 let opencvHazir = false;
 let streaming = false;
 
-// --- YENİ KIRPMA (CROP) AYARLARI ---
-// Bu değerlerle oynayarak pencereyi istediğin gibi şekillendirebilirsin
-const CROP_X = 0.30; // Soldan ve sağdan %30 atla (Ortadaki %40'ı alır)
-const CROP_Y = 0.25; // Üstten ve alttan %25 atla (Ortadaki %50'yi alır)
+const CROP_X = 0.30; 
+const CROP_Y = 0.25; 
 const CROP_W = 1.0 - (CROP_X * 2);
 const CROP_H = 1.0 - (CROP_Y * 2);
 
 // OpenCV Değişkenleri
 let src, dst, gray, blur, edges, M, contours, hierarchy;
+
+// --- YENİ EKLENEN: DİJİTAL FİLTRE HAFIZASI ---
+let olcumGecmisi = []; // Son ölçümleri tutacağımız dizi
 
 // ---- 1. MQTT WEBSOCKET KURULUMU ----
 let client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
@@ -82,12 +83,10 @@ async function kamerayiBaslat(deviceId = null) {
         flasiAcKapat(true);
 
         video.onloadedmetadata = () => {
-            // Canvas boyutunu yeni daraltılmış oranlara göre ayarlıyoruz
             canvas.width = video.videoWidth * CROP_W;
             canvas.height = video.videoHeight * CROP_H; 
             
             if (!src) {
-                // Matrisler yeni hafif boyutlara göre oluşuyor (Büyük Performans Artışı)
                 src = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
                 dst = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
                 gray = new cv.Mat();
@@ -157,7 +156,7 @@ document.getElementById('baslatBtn').addEventListener('click', () => {
 });
 
 
-// ---- 3. EKRANA DOKUNARAK ODAKLAMA (TAP TO FOCUS) ----
+// ---- 3. EKRANA DOKUNARAK ODAKLAMA ----
 let odakX = -1, odakY = -1;
 let odakZamani = 0;
 
@@ -176,7 +175,6 @@ canvas.addEventListener('click', async (e) => {
     odakY = normY * canvas.height;
     odakZamani = Date.now();
 
-    // Orijinal kamera sensöründeki gerçek koordinatı hesapla (Kırpmadan dolayı kayan ekseni düzeltiyoruz)
     const sensorNormX = CROP_X + (normX * CROP_W);
     const sensorNormY = CROP_Y + (normY * CROP_H);
 
@@ -185,7 +183,7 @@ canvas.addEventListener('click', async (e) => {
             advanced: [{ pointsOfInterest: [{ x: sensorNormX, y: sensorNormY }] }]
         });
     } catch (err) {
-        console.log("Manuel odaklama (donanımsal) bu cihazda desteklenmiyor.");
+        console.log("Manuel odaklama desteklenmiyor.");
     }
 });
 
@@ -227,11 +225,25 @@ function goruntuIsle() {
 
     if (secilenKonturIndex !== -1) {
         let rect = cv.boundingRect(contours.get(secilenKonturIndex));
-        let kalinlikPiksel = Math.min(rect.width, rect.height);
+        
+        // Piksellerdeki anlık sıçramaları yakala
+        let anlikKalinlikPiksel = Math.min(rect.width, rect.height);
         let isHorizontal = rect.width > rect.height; 
+        
+        // --- HAREKETLİ ORTALAMA FİLTRESİ (MOVING AVERAGE) ---
+        olcumGecmisi.push(anlikKalinlikPiksel);
+        // Son 15 kareyi (yaklaşık 0.5 saniye) hafızada tut, gerisini sil
+        if (olcumGecmisi.length > 15) {
+            olcumGecmisi.shift();
+        }
+        
+        // Hafızadaki piksellerin ortalamasını al (Titreşimi sıfırlar)
+        let toplamPiksel = olcumGecmisi.reduce((a, b) => a + b, 0);
+        let ortalamaKalinlikPiksel = toplamPiksel / olcumGecmisi.length;
         
         let color = new cv.Scalar(0, 230, 118, 255); 
         
+        // Sınır çizgilerini çiz
         if (isHorizontal) {
             let ustSol = new cv.Point(rect.x, rect.y);
             let ustSag = new cv.Point(rect.x + rect.width, rect.y);
@@ -248,12 +260,16 @@ function goruntuIsle() {
             cv.line(dst, sagUst, sagAlt, color, 3);
         }
 
-        const PIKSEL_CAPPAN = 0.1833; 
-        let kalinlikFloat = kalinlikPiksel * PIKSEL_CAPPAN;
+        // YENİ KALİBRASYON KATSAYISI (Gerçek filamente göre ayarlandı)
+        const PIKSEL_CAPPAN = 0.0583; 
+        
+        // Ekrandaki sayıyı titreşen anlık değere göre değil, yumuşatılmış ortalamaya göre hesapla
+        let kalinlikFloat = ortalamaKalinlikPiksel * PIKSEL_CAPPAN;
         let mmHesabi = kalinlikFloat.toFixed(2);
         
         let motorDurumu = "SABIT";
 
+        // Tolerans Döngüsü
         if (kalinlikFloat > 1.80) {
             motorDurumu = "HIZLANDIR"; 
             kalinlikText.style.color = "#ff5252"; 
@@ -271,6 +287,9 @@ function goruntuIsle() {
             veriGonder(parseFloat(mmHesabi), motorDurumu);
             sonGonderimZamani = Date.now();
         }
+    } else {
+        // Eğer ekranda cisim kaybolursa filtre hafızasını sıfırla ki eski veriyle ölçüme devam etmesin
+        olcumGecmisi = [];
     }
 
     if (Date.now() - odakZamani < 1000) {
