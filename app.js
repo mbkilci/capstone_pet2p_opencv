@@ -7,19 +7,19 @@ let telemetriBtn = document.getElementById('telemetriBtn');
 
 let opencvHazir = false;
 let streaming = false;
-let telemetriAktif = false; // MQTT veri akış kontrol bayrağı
+let telemetriAktif = false; 
 
-// --- 3. GÖREV: YENİ DARALTILMIŞ (CROP) ORANLARI ---
+// --- GÜNCEL KIRPMA (CROP) AYARLARI ---
 const CROP_X = 0.30; 
-const CROP_Y_TOP = 0.375;     // Üstten %25 daha daraltıldı (0.25 + 0.125)
-const CROP_Y_BOTTOM = 0.350;  // Alttan %20 daha daraltıldı (0.25 + 0.10)
+const CROP_Y_TOP = 0.375;     
+const CROP_Y_BOTTOM = 0.405;  // Alt bölümden şu anki haline göre %20 daha kırpıldı
 const CROP_W = 1.0 - (CROP_X * 2);
 const CROP_H = 1.0 - CROP_Y_TOP - CROP_Y_BOTTOM;
 
 // OpenCV Değişkenleri
 let src, dst, gray, blur, edges, M, contours, hierarchy;
 
-// --- 1. GÖREV: AMORTİSÖR FİLTRE HAFIZASI (YAVAŞLATILDI) ---
+// Amortisör Filtre Hafızası
 let olcumGecmisi = []; 
 
 // ---- MQTT WEBSOCKET KURULUMU ----
@@ -49,7 +49,7 @@ function onConnectionLost(responseObject) {
 }
 
 function veriGonder(kalinlik, durum) {
-    if (client.isConnected() && telemetriAktif) { // Sadece akış aktifse gönder
+    if (client.isConnected() && telemetriAktif) { 
         let payload = JSON.stringify({ 
             "kalinlik": kalinlik,
             "motor_aksiyonu": durum,
@@ -63,21 +63,20 @@ function veriGonder(kalinlik, durum) {
 
 mqttBaglan();
 
-// ---- 2. GÖREV: VERİ AKIŞINI BAŞLAT / DURDUR BUTON MANTIĞI ----
+// ---- VERİ AKIŞINI BAŞLAT / DURDUR BUTON MANTIĞI ----
 telemetriBtn.addEventListener('click', () => {
     if (!telemetriAktif) {
-        // MQTT Bağlantı Kontrol Kilidi
         if (!client.isConnected()) {
             alert("HATA: MQTT sunucusuna bağlanılamadı! Lütfen internetinizi veya broker durumunu kontrol edin.");
             return;
         }
         telemetriAktif = true;
         telemetriBtn.innerText = "Durdur";
-        telemetriBtn.style.backgroundColor = "#ff5252"; // Kırmızı yap
+        telemetriBtn.style.backgroundColor = "#ff5252"; 
     } else {
         telemetriAktif = false;
         telemetriBtn.innerText = "Veri Akışını Başlat";
-        telemetriBtn.style.backgroundColor = "#2196F3"; // Mavi yap
+        telemetriBtn.style.backgroundColor = "#2196F3"; 
     }
 });
 
@@ -127,8 +126,8 @@ async function kamerayiBaslat(deviceId = null) {
 
         if (!deviceId) {
             kameralariListele();
-            document.getElementById('baslatBtn').style.display = "none"; // Ölçümü başlat tuşunu gizle
-            telemetriBtn.style.display = "block"; // Akış yönetici tuşunu göster
+            document.getElementById('baslatBtn').style.display = "none"; 
+            telemetriBtn.style.display = "block"; 
         }
 
     } catch (err) {
@@ -253,7 +252,6 @@ function goruntuIsle() {
         let anlikKalinlikPiksel = Math.min(rect.width, rect.height);
         let isHorizontal = rect.width > rect.height; 
         
-        // --- 1. GÖREV: AMORTİSÖR FİLTRESİ 45 KAREYE YÜKSELTİLDİ (DURGUN AKIŞ) ---
         olcumGecmisi.push(anlikKalinlikPiksel);
         if (olcumGecmisi.length > 45) {
             olcumGecmisi.shift();
@@ -280,8 +278,8 @@ function goruntuIsle() {
             cv.line(dst, sagUst, sagAlt, color, 3);
         }
 
-        // --- 1. GÖREV: 1.05 -> 1.75 MM GÜNCEL KALİBRASYON KATSAYISI ---
-        const PIKSEL_CAPPAN = 0.0972; 
+        // --- YENİ YENİDEN KALİBRE EDİLMİŞ KATSAYI (2.14 -> 1.75 DÜZELTMESİ) ---
+        const PIKSEL_CAPPAN = 0.0795; 
         
         let kalinlikFloat = ortalamaKalinlikPiksel * PIKSEL_CAPPAN;
         let mmHesabi = kalinlikFloat.toFixed(2);
@@ -299,11 +297,9 @@ function goruntuIsle() {
             kalinlikText.style.color = "#00E676"; 
         }
 
-        // Veri akış durumunu ekrandaki yazıya ekle
         let ekYazi = telemetriAktif ? " | Yayın Açık" : " | Yayın Durduruldu";
         kalinlikText.innerHTML = mmHesabi + " mm (" + motorDurumu + ")" + ekYazi;
 
-        // Veriyi sadece akış açıkken saniyede bir gönderir
         if (Date.now() - sonGonderimZamani > 1000) {
             if (telemetriAktif) {
                 veriGonder(parseFloat(mmHesabi), motorDurumu);
