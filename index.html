@@ -15,19 +15,21 @@
             <div class="status-panel" style="background-color: #1e1e1e; padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #333;">
                 <p style="margin: 5px 0;">Hedef: 1.75 mm</p>
                 <p style="margin: 5px 0; font-size: 22px;">Anlık: <span id="kalinlik-deger" style="color:#00E676; font-weight:bold;">0.00 mm</span></p>
-                <p style="margin: 5px 0; font-size: 14px;">MQTT Durumu: <span id="mqtt-durum" style="color: #ff5252;">Bağlanıyor...</span></p>
+                <p style="margin: 5px 0; font-size: 14px;">MQTT Durumu: <span id="mqtt-durum" class="disconnected" style="color: #ff5252;">Bağlanıyor...</span></p>
             </div>
         </div>
         
-        <div class="video-container" style="flex-grow: 1; display: flex; justify-content: center; align-items: center; margin-bottom: 15px; min-height: 200px;">
+        <div class="video-container" style="flex-grow: 1; display: flex; justify-content: center; align-items: center; margin-bottom: 15px; min-height: 150px;">
             <video id="kamera" autoplay playsinline style="display: none;"></video>
-            <canvas id="islemEkrani" style="max-width: 100%; max-height: 45vh; object-fit: contain; border: 2px solid #00E676; border-radius: 8px; background-color: #000; box-shadow: 0 4px 15px rgba(0,230,118,0.2);"></canvas>
+            <canvas id="islemEkrani" style="max-width: 100%; max-height: 40vh; object-fit: contain; border: 2px solid #00E676; border-radius: 8px; background-color: #000; box-shadow: 0 4px 15px rgba(0,230,118,0.2);"></canvas>
         </div>
         
-        <div style="padding-bottom: 15px;">
-            <button id="baslatBtn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #00E676; color: black; border-radius: 8px; border: none; cursor: pointer;">Sistemi Başlat (Kamera + Yapay Zeka)</button>
+        <div style="padding-bottom: 15px; display: flex; flex-direction: column; gap: 10px;">
+            <button id="baslatBtn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #00E676; color: black; border-radius: 8px; border: none; cursor: pointer;">Ölçümü Başlat</button>
             
-            <div class="kamera-kontrolleri" style="margin-top: 10px; display: none; gap: 10px; justify-content: center;" id="ekstraKontroller">
+            <button id="telemetriBtn" style="width: 100%; padding: 15px; font-size: 18px; font-weight: bold; background-color: #2196F3; color: white; border-radius: 8px; border: none; cursor: pointer; display: none;">Veri Akışını Başlat</button>
+            
+            <div class="kamera-kontrolleri" style="display: none; gap: 10px; justify-content: center;" id="ekstraKontroller">
                 <select id="kameraSecici" style="padding: 10px; border-radius: 8px; flex-grow: 1; background-color: #333; color: white; border: 1px solid #00E676;"></select>
                 <button id="flasBtn" style="padding: 10px 20px; border-radius: 8px; border: none; font-weight: bold; background-color: #FFC107; color: black; cursor: pointer;">Flaş Aç</button>
             </div>

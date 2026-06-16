@@ -3,22 +3,26 @@ let canvas = document.getElementById('islemEkrani');
 let ctx = canvas.getContext('2d');
 let kalinlikText = document.getElementById('kalinlik-deger');
 let mqttDurum = document.getElementById('mqtt-durum');
+let telemetriBtn = document.getElementById('telemetriBtn');
 
 let opencvHazir = false;
 let streaming = false;
+let telemetriAktif = false; // MQTT veri akış kontrol bayrağı
 
+// --- 3. GÖREV: YENİ DARALTILMIŞ (CROP) ORANLARI ---
 const CROP_X = 0.30; 
-const CROP_Y = 0.25; 
+const CROP_Y_TOP = 0.375;     // Üstten %25 daha daraltıldı (0.25 + 0.125)
+const CROP_Y_BOTTOM = 0.350;  // Alttan %20 daha daraltıldı (0.25 + 0.10)
 const CROP_W = 1.0 - (CROP_X * 2);
-const CROP_H = 1.0 - (CROP_Y * 2);
+const CROP_H = 1.0 - CROP_Y_TOP - CROP_Y_BOTTOM;
 
 // OpenCV Değişkenleri
 let src, dst, gray, blur, edges, M, contours, hierarchy;
 
-// --- YENİ EKLENEN: DİJİTAL FİLTRE HAFIZASI ---
-let olcumGecmisi = []; // Son ölçümleri tutacağımız dizi
+// --- 1. GÖREV: AMORTİSÖR FİLTRE HAFIZASI (YAVAŞLATILDI) ---
+let olcumGecmisi = []; 
 
-// ---- 1. MQTT WEBSOCKET KURULUMU ----
+// ---- MQTT WEBSOCKET KURULUMU ----
 let client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
 
 client.onConnectionLost = onConnectionLost;
@@ -29,19 +33,23 @@ function mqttBaglan() {
 
 function onConnect() {
     mqttDurum.innerHTML = "Bağlı";
-    mqttDurum.className = "connected";
+    mqttDurum.style.color = "#00E676";
+    console.log("MQTT Broker'a bağlanıldı!");
 }
 
 function onConnectionLost(responseObject) {
     if (responseObject.errorCode !== 0) {
         mqttDurum.innerHTML = "Bağlantı Koptu";
-        mqttDurum.className = "disconnected";
+        mqttDurum.style.color = "#ff5252";
+        telemetriAktif = false;
+        telemetriBtn.innerText = "Veri Akışını Başlat";
+        telemetriBtn.style.backgroundColor = "#2196F3";
         setTimeout(mqttBaglan, 3000); 
     }
 }
 
 function veriGonder(kalinlik, durum) {
-    if (client.isConnected()) {
+    if (client.isConnected() && telemetriAktif) { // Sadece akış aktifse gönder
         let payload = JSON.stringify({ 
             "kalinlik": kalinlik,
             "motor_aksiyonu": durum,
@@ -55,7 +63,25 @@ function veriGonder(kalinlik, durum) {
 
 mqttBaglan();
 
-// ---- 2. OPENCV.JS VE KAMERA İŞLEMLERİ ----
+// ---- 2. GÖREV: VERİ AKIŞINI BAŞLAT / DURDUR BUTON MANTIĞI ----
+telemetriBtn.addEventListener('click', () => {
+    if (!telemetriAktif) {
+        // MQTT Bağlantı Kontrol Kilidi
+        if (!client.isConnected()) {
+            alert("HATA: MQTT sunucusuna bağlanılamadı! Lütfen internetinizi veya broker durumunu kontrol edin.");
+            return;
+        }
+        telemetriAktif = true;
+        telemetriBtn.innerText = "Durdur";
+        telemetriBtn.style.backgroundColor = "#ff5252"; // Kırmızı yap
+    } else {
+        telemetriAktif = false;
+        telemetriBtn.innerText = "Veri Akışını Başlat";
+        telemetriBtn.style.backgroundColor = "#2196F3"; // Mavi yap
+    }
+});
+
+// ---- OPENCV.JS VE KAMERA İŞLEMLERİ ----
 let currentStream = null;
 let isTorchOn = false;
 
@@ -99,7 +125,11 @@ async function kamerayiBaslat(deviceId = null) {
             }
         };
 
-        if (!deviceId) kameralariListele();
+        if (!deviceId) {
+            kameralariListele();
+            document.getElementById('baslatBtn').style.display = "none"; // Ölçümü başlat tuşunu gizle
+            telemetriBtn.style.display = "block"; // Akış yönetici tuşunu göster
+        }
 
     } catch (err) {
         alert("Kamera başlatılamadı: " + err.message);
@@ -112,14 +142,12 @@ async function kameralariListele() {
     const secici = document.getElementById('kameraSecici');
     
     secici.innerHTML = '';
-    
     videoDevices.forEach((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
         option.text = device.label || `Kamera Lens ${index + 1}`;
         secici.appendChild(option);
     });
-
     document.getElementById('ekstraKontroller').style.display = "flex";
 }
 
@@ -139,7 +167,7 @@ async function flasiAcKapat(zorunluDurum = null) {
             document.getElementById('flasBtn').innerText = isTorchOn ? "Flaşı Kapat" : "Flaş Aç";
             document.getElementById('flasBtn').style.backgroundColor = isTorchOn ? "#ffffff" : "#FFC107";
         } catch (err) {
-            console.error("Flaş kontrol hatası:", err);
+            console.error(err);
         }
     }
 }
@@ -151,12 +179,10 @@ document.getElementById('baslatBtn').addEventListener('click', () => {
         alert("OpenCV yükleniyor, lütfen bekleyin...");
         return;
     }
-    document.getElementById('baslatBtn').style.display = "none"; 
     kamerayiBaslat(); 
 });
 
-
-// ---- 3. EKRANA DOKUNARAK ODAKLAMA ----
+// ---- EKRANA DOKUNARAK ODAKLAMA ----
 let odakX = -1, odakY = -1;
 let odakZamani = 0;
 
@@ -176,7 +202,7 @@ canvas.addEventListener('click', async (e) => {
     odakZamani = Date.now();
 
     const sensorNormX = CROP_X + (normX * CROP_W);
-    const sensorNormY = CROP_Y + (normY * CROP_H);
+    const sensorNormY = CROP_Y_TOP + (normY * CROP_H);
 
     try {
         await track.applyConstraints({
@@ -187,15 +213,14 @@ canvas.addEventListener('click', async (e) => {
     }
 });
 
-
-// ---- 4. GÖRÜNTÜ İŞLEME DÖNGÜSÜ ----
+// ---- GÖRÜNTÜ İŞLEME DÖNGÜSÜ ----
 let sonGonderimZamani = Date.now();
 
 function goruntuIsle() {
     if (!streaming) return;
 
     let sx = video.videoWidth * CROP_X;
-    let sy = video.videoHeight * CROP_Y; 
+    let sy = video.videoHeight * CROP_Y_TOP; 
     let sWidth = video.videoWidth * CROP_W;
     let sHeight = video.videoHeight * CROP_H;
     
@@ -225,25 +250,20 @@ function goruntuIsle() {
 
     if (secilenKonturIndex !== -1) {
         let rect = cv.boundingRect(contours.get(secilenKonturIndex));
-        
-        // Piksellerdeki anlık sıçramaları yakala
         let anlikKalinlikPiksel = Math.min(rect.width, rect.height);
         let isHorizontal = rect.width > rect.height; 
         
-        // --- HAREKETLİ ORTALAMA FİLTRESİ (MOVING AVERAGE) ---
+        // --- 1. GÖREV: AMORTİSÖR FİLTRESİ 45 KAREYE YÜKSELTİLDİ (DURGUN AKIŞ) ---
         olcumGecmisi.push(anlikKalinlikPiksel);
-        // Son 15 kareyi (yaklaşık 0.5 saniye) hafızada tut, gerisini sil
-        if (olcumGecmisi.length > 15) {
+        if (olcumGecmisi.length > 45) {
             olcumGecmisi.shift();
         }
         
-        // Hafızadaki piksellerin ortalamasını al (Titreşimi sıfırlar)
         let toplamPiksel = olcumGecmisi.reduce((a, b) => a + b, 0);
         let ortalamaKalinlikPiksel = toplamPiksel / olcumGecmisi.length;
         
         let color = new cv.Scalar(0, 230, 118, 255); 
         
-        // Sınır çizgilerini çiz
         if (isHorizontal) {
             let ustSol = new cv.Point(rect.x, rect.y);
             let ustSag = new cv.Point(rect.x + rect.width, rect.y);
@@ -260,16 +280,14 @@ function goruntuIsle() {
             cv.line(dst, sagUst, sagAlt, color, 3);
         }
 
-        // YENİ KALİBRASYON KATSAYISI (Gerçek filamente göre ayarlandı)
-        const PIKSEL_CAPPAN = 0.0583; 
+        // --- 1. GÖREV: 1.05 -> 1.75 MM GÜNCEL KALİBRASYON KATSAYISI ---
+        const PIKSEL_CAPPAN = 0.0972; 
         
-        // Ekrandaki sayıyı titreşen anlık değere göre değil, yumuşatılmış ortalamaya göre hesapla
         let kalinlikFloat = ortalamaKalinlikPiksel * PIKSEL_CAPPAN;
         let mmHesabi = kalinlikFloat.toFixed(2);
         
         let motorDurumu = "SABIT";
 
-        // Tolerans Döngüsü
         if (kalinlikFloat > 1.80) {
             motorDurumu = "HIZLANDIR"; 
             kalinlikText.style.color = "#ff5252"; 
@@ -281,14 +299,18 @@ function goruntuIsle() {
             kalinlikText.style.color = "#00E676"; 
         }
 
-        kalinlikText.innerHTML = mmHesabi + " mm (" + motorDurumu + ")";
+        // Veri akış durumunu ekrandaki yazıya ekle
+        let ekYazi = telemetriAktif ? " | Yayın Açık" : " | Yayın Durduruldu";
+        kalinlikText.innerHTML = mmHesabi + " mm (" + motorDurumu + ")" + ekYazi;
 
+        // Veriyi sadece akış açıkken saniyede bir gönderir
         if (Date.now() - sonGonderimZamani > 1000) {
-            veriGonder(parseFloat(mmHesabi), motorDurumu);
+            if (telemetriAktif) {
+                veriGonder(parseFloat(mmHesabi), motorDurumu);
+            }
             sonGonderimZamani = Date.now();
         }
     } else {
-        // Eğer ekranda cisim kaybolursa filtre hafızasını sıfırla ki eski veriyle ölçüme devam etmesin
         olcumGecmisi = [];
     }
 
