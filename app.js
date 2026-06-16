@@ -7,20 +7,16 @@ let mqttDurum = document.getElementById('mqtt-durum');
 let opencvHazir = false;
 let streaming = false;
 
-// OpenCV Değişkenleri (Bellek sızıntısını önlemek için global tanımlanıp tekrar kullanılır)
+// OpenCV Değişkenleri
 let src, dst, gray, blur, edges, M, contours, hierarchy;
 
 // ---- 1. MQTT WEBSOCKET KURULUMU ----
-// HiveMQ'nun WebSocket portu 8884'tür. (ESP32 standart TCP 1883 kullanır, broker ikisini birleştirir)
 let client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
 
 client.onConnectionLost = onConnectionLost;
 
 function mqttBaglan() {
-    client.connect({
-        onSuccess: onConnect,
-        useSSL: true // WebApp HTTPS üzerinden çalışacağı için SSL şart
-    });
+    client.connect({ onSuccess: onConnect, useSSL: true });
 }
 
 function onConnect() {
@@ -33,12 +29,10 @@ function onConnectionLost(responseObject) {
     if (responseObject.errorCode !== 0) {
         mqttDurum.innerHTML = "Bağlantı Koptu";
         mqttDurum.className = "disconnected";
-        console.log("Bağlantı koptu: " + responseObject.errorMessage);
-        setTimeout(mqttBaglan, 3000); // 3 saniye sonra tekrar dene
+        setTimeout(mqttBaglan, 3000); 
     }
 }
 
-// MQTT Veri Gönderme Fonksiyonu
 function veriGonder(kalinlik, durum) {
     if (client.isConnected()) {
         let payload = JSON.stringify({ 
@@ -52,11 +46,8 @@ function veriGonder(kalinlik, durum) {
     }
 }
 
-// Başlangıçta MQTT'ye bağlan
 mqttBaglan();
 
-
-// ---- 2. OPENCV.JS VE KAMERA İŞLEMLERİ ----
 // ---- 2. OPENCV.JS VE KAMERA İŞLEMLERİ ----
 let currentStream = null;
 let isTorchOn = false;
@@ -66,10 +57,9 @@ function onOpenCvReady() {
     console.log("OpenCV.js yüklendi.");
 }
 
-// Kamerayı belirli bir lens ID'si ile başlatan fonksiyon
 async function kamerayiBaslat(deviceId = null) {
     if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop()); // Eski kamerayı kapat
+        currentStream.getTracks().forEach(track => track.stop());
     }
 
     let constraints = {
@@ -83,17 +73,17 @@ async function kamerayiBaslat(deviceId = null) {
         video.play();
         streaming = true;
 
-        // Flaş özelliğini otomatik açmayı dene
         flasiAcKapat(true);
 
         video.onloadedmetadata = () => {
+            // YENİLİK 1: Canvas yüksekliğini %50 daraltıyoruz (Barkod okuyucu stili)
             canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            canvas.height = video.videoHeight / 2; 
             
-            // Eğer ilk defa çalışıyorsa matrisleri oluştur
             if (!src) {
-                src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                // Matrisler artık bu daraltılmış yeni boyuta göre oluşuyor (Performans artışı)
+                src = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
+                dst = new cv.Mat(canvas.height, canvas.width, cv.CV_8UC4);
                 gray = new cv.Mat();
                 blur = new cv.Mat();
                 edges = new cv.Mat();
@@ -104,7 +94,6 @@ async function kamerayiBaslat(deviceId = null) {
             }
         };
 
-        // Eğer deviceId yoksa (ilk açılış), kameraları listele
         if (!deviceId) kameralariListele();
 
     } catch (err) {
@@ -112,7 +101,6 @@ async function kamerayiBaslat(deviceId = null) {
     }
 }
 
-// Cihazdaki tüm fiziksel lensleri bulup listeye ekleyen fonksiyon
 async function kameralariListele() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter(device => device.kind === 'videoinput');
@@ -123,7 +111,6 @@ async function kameralariListele() {
     videoDevices.forEach((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
-        // Telefonlar genelde lens isimlerini "Back Camera 1, Ultra Wide" gibi verir
         option.text = device.label || `Kamera Lens ${index + 1}`;
         secici.appendChild(option);
     });
@@ -131,18 +118,15 @@ async function kameralariListele() {
     document.getElementById('ekstraKontroller').style.display = "flex";
 }
 
-// Yeni lens seçildiğinde kamerayı o lense kilitle
 document.getElementById('kameraSecici').addEventListener('change', (e) => {
     kamerayiBaslat(e.target.value);
 });
 
-// Flaş Aç/Kapat Fonksiyonu
 async function flasiAcKapat(zorunluDurum = null) {
     if (!currentStream) return;
     const track = currentStream.getVideoTracks()[0];
     const capabilities = track.getCapabilities();
 
-    // Cihaz flaş kontrolünü destekliyorsa
     if (capabilities.torch) {
         isTorchOn = zorunluDurum !== null ? zorunluDurum : !isTorchOn;
         try {
@@ -155,42 +139,74 @@ async function flasiAcKapat(zorunluDurum = null) {
     }
 }
 
-// Flaş Butonu Tıklama
 document.getElementById('flasBtn').addEventListener('click', () => flasiAcKapat());
 
-// Ana Başlat Butonu Tıklama
 document.getElementById('baslatBtn').addEventListener('click', () => {
     if (!opencvHazir) {
         alert("OpenCV yükleniyor, lütfen bekleyin...");
         return;
     }
-    document.getElementById('baslatBtn').style.display = "none"; // Başlat butonunu gizle
-    kamerayiBaslat(); // Varsayılan arka kamerayla başla
+    document.getElementById('baslatBtn').style.display = "none"; 
+    kamerayiBaslat(); 
 });
 
+
+// ---- 3. EKRANA DOKUNARAK ODAKLAMA (TAP TO FOCUS) ----
+let odakX = -1, odakY = -1;
+let odakZamani = 0;
+
+canvas.addEventListener('click', async (e) => {
+    if (!currentStream) return;
+    const track = currentStream.getVideoTracks()[0];
+    
+    // Tıklanan noktanın canvas üzerindeki koordinatları
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    
+    // Cihaza göndermek için 0.0 ile 1.0 arası normalize ediyoruz
+    const normX = clickX / rect.width;
+    const normY = clickY / rect.height;
+
+    // Ekranda sarı odak halkasını göstermek için değerleri kaydediyoruz
+    // Canvas'ın gerçek piksellerine çeviriyoruz (CSS boyutundan asıl boyuta)
+    odakX = (clickX / rect.width) * canvas.width;
+    odakY = (clickY / rect.height) * canvas.height;
+    odakZamani = Date.now();
+
+    try {
+        // Cihazın lensine o noktaya odaklanması için donanımsal emir
+        await track.applyConstraints({
+            advanced: [{ pointsOfInterest: [{ x: normX, y: normY }] }]
+        });
+    } catch (err) {
+        console.log("Manuel odaklama (donanımsal) bu cihazda desteklenmiyor.");
+    }
+});
+
+
+// ---- 4. GÖRÜNTÜ İŞLEME DÖNGÜSÜ ----
 let sonGonderimZamani = Date.now();
-// ... (Buradan sonrası goruntuIsle() fonksiyonu ile aynen devam ediyor, oraya dokunmuyoruz) ...
 
 function goruntuIsle() {
     if (!streaming) return;
 
-    // 1. Videoyu Matrise al
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // YENİLİK 2: Videonun sadece "Orta %50'lik" kısmını kesip Canvas'a çiziyoruz
+    let sx = 0;
+    let sy = video.videoHeight * 0.25; // Üstten %25 atla
+    let sWidth = video.videoWidth;
+    let sHeight = video.videoHeight * 0.50; // Ortadaki %50'yi al
+    
+    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
     src.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
 
-    // 2. Griye Çevir ve Bulanıklaştır (Şeffaf filament kırılmaları için)
+    // İşlemler (Artık sadece o dar alan işleniyor)
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-    let ksize = new cv.Size(7, 7);
-    cv.GaussianBlur(gray, blur, ksize, 0, 0, cv.BORDER_DEFAULT);
-
-    // 3. Canny Edge Detection (Kenar Bulma)
+    cv.GaussianBlur(gray, blur, new cv.Size(7, 7), 0, 0, cv.BORDER_DEFAULT);
     cv.Canny(blur, edges, 30, 100, 3, false);
 
-    // 4. Kenarları Genişlet (Dilate) - Kesik ışık kırılmalarını birleştirmek için
     let anchor = new cv.Point(-1, -1);
     cv.dilate(edges, edges, M, anchor, 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
-
-    // 5. Konturları Bul
     cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let enBuyukAlan = 0;
@@ -198,30 +214,22 @@ function goruntuIsle() {
 
     for (let i = 0; i < contours.size(); ++i) {
         let alan = cv.contourArea(contours.get(i));
-        if (alan > enBuyukAlan && alan > 500) { // Tozları/Gürültüyü yoksay
+        if (alan > enBuyukAlan && alan > 500) { 
             enBuyukAlan = alan;
             secilenKonturIndex = i;
         }
     }
 
-  // Orijinal görüntüyü ekrana basmak için src'yi dst'ye kopyala
     src.copyTo(dst);
 
-    // EĞER EKRANDA BİR NESNE BULUNDUYSA İŞLEMLERİ YAP
     if (secilenKonturIndex !== -1) {
-        
-        // Nesnenin sınırlarını (Bounding Box) al
         let rect = cv.boundingRect(contours.get(secilenKonturIndex));
-        
-        // NESNENİN EN İNCE YÖNÜNÜ BUL (Kalınlık her zaman kısa kenardır)
         let kalinlikPiksel = Math.min(rect.width, rect.height);
-        let isHorizontal = rect.width > rect.height; // Nesne yatay mı duruyor?
+        let isHorizontal = rect.width > rect.height; 
         
-        let color = new cv.Scalar(0, 230, 118, 255); // Yeşil renk
+        let color = new cv.Scalar(0, 230, 118, 255); 
         
-        // Kutu yerine Dijital Kumpas çizgileri çekiyoruz
         if (isHorizontal) {
-            // Nesne yataysa (filament gibi), üstüne ve altına yatay çizgi çek
             let ustSol = new cv.Point(rect.x, rect.y);
             let ustSag = new cv.Point(rect.x + rect.width, rect.y);
             let altSol = new cv.Point(rect.x, rect.y + rect.height);
@@ -229,7 +237,6 @@ function goruntuIsle() {
             cv.line(dst, ustSol, ustSag, color, 3);
             cv.line(dst, altSol, altSag, color, 3);
         } else {
-            // Nesne dikeyse, sağına ve soluna dikey çizgi çek
             let solUst = new cv.Point(rect.x, rect.y);
             let solAlt = new cv.Point(rect.x, rect.y + rect.height);
             let sagUst = new cv.Point(rect.x + rect.width, rect.y);
@@ -238,40 +245,39 @@ function goruntuIsle() {
             cv.line(dst, sagUst, sagAlt, color, 3);
         }
 
-        // --- YENİ KALİBRASYON VE MOTOR ALGORİTMASI ---
-        
-        // 1 Pikselin mm karşılığı (Sigara testine göre 5.5 / 30 = 0.1833)
         const PIKSEL_CAPPAN = 0.1833; 
         let kalinlikFloat = kalinlikPiksel * PIKSEL_CAPPAN;
         let mmHesabi = kalinlikFloat.toFixed(2);
         
         let motorDurumu = "SABIT";
 
-        // +- 0.05 mm Tolerans Mantığı
         if (kalinlikFloat > 1.80) {
-            motorDurumu = "HIZLANDIR"; // Çok kalın, germek için motoru hızlandır
-            kalinlikText.style.color = "#ff5252"; // Ekranda yazıyı Kırmızı yap
+            motorDurumu = "HIZLANDIR"; 
+            kalinlikText.style.color = "#ff5252"; 
         } else if (kalinlikFloat < 1.70) {
-            motorDurumu = "YAVASLAT"; // Çok ince, birikmesi için motoru yavaşlat
-            kalinlikText.style.color = "#2196F3"; // Ekranda yazıyı Mavi yap
+            motorDurumu = "YAVASLAT"; 
+            kalinlikText.style.color = "#2196F3"; 
         } else {
-            motorDurumu = "SABIT"; // İdeal Aralık (1.70 - 1.80)
-            kalinlikText.style.color = "#00E676"; // Ekranda yazıyı Yeşil yap
+            motorDurumu = "SABIT"; 
+            kalinlikText.style.color = "#00E676"; 
         }
 
-        // Arayüzü güncelle (Örn: "1.75 mm (SABIT)")
         kalinlikText.innerHTML = mmHesabi + " mm (" + motorDurumu + ")";
 
-        // ESP32'ye Saniyede 1 Kez Hem Kalınlığı Hem Emri Gönder
         if (Date.now() - sonGonderimZamani > 1000) {
             veriGonder(parseFloat(mmHesabi), motorDurumu);
             sonGonderimZamani = Date.now();
         }
-    } // İF DÖNGÜSÜ BURADA KAPANMAK ZORUNDA!
+    }
 
-    // İşlenmiş görüntüyü canvas'a yaz
+    // YENİLİK 3: Ekrana dokunulduysa Sarı Odaklama Halkasını 1 saniye boyunca göster
+    if (Date.now() - odakZamani < 1000) {
+        let center = new cv.Point(odakX, odakY);
+        let sari = new cv.Scalar(255, 193, 7, 255);
+        cv.circle(dst, center, 30, sari, 3); // Dış halka
+        cv.circle(dst, center, 4, sari, -1); // İç nokta
+    }
+
     cv.imshow('islemEkrani', dst);
-
-    // Döngüyü tekrarla (Akışı devam ettir)
     requestAnimationFrame(goruntuIsle);
 }
