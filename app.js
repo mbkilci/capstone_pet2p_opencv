@@ -45,7 +45,7 @@ function mqttBaglan() {
 }
 
 function onConnect() {
-    mqttDurum.innerHTML = "UI Bağlı";
+    mqttDurum.innerHTML = "Bağlı";
     mqttDurum.style.color = "#00E676";
     console.log("MQTT Broker'ına başarıyla kilitlenildi!");
 }
