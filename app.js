@@ -9,10 +9,10 @@ let opencvHazir = false;
 let streaming = false;
 let telemetriAktif = false; 
 
-// --- GÜNCEL KIRPMA (CROP) AYARLARI ---
+// --- Frame AYARLARI ---
 const CROP_X = 0.30; 
 const CROP_Y_TOP = 0.375;     
-const CROP_Y_BOTTOM = 0.405;  // Alt bölümden şu anki haline göre %20 daha kırpıldı
+const CROP_Y_BOTTOM = 0.405; 
 const CROP_W = 1.0 - (CROP_X * 2);
 const CROP_H = 1.0 - CROP_Y_TOP - CROP_Y_BOTTOM;
 
@@ -22,19 +22,39 @@ let src, dst, gray, blur, edges, M, contours, hierarchy;
 // Amortisör Filtre Hafızası
 let olcumGecmisi = []; 
 
-// ---- MQTT WEBSOCKET KURULUMU ----
-let client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
+// ---- 1. MQTT WEBSOCKET KURULUMU ----
+const MQTT_BROKER = "21358b8f9c1d42fdbbe8a62a8b522da4.s1.eu.hivemq.cloud";
+const MQTT_PORT = 8884; // Web uygulamaları için zorunlu WebSocket Portu
+const MQTT_USER = "pet2print-admin";
+const MQTT_PASS = "BahcesehirCapstone2026";
+const TOPIC_TELEMETRY = "pet2print/telemetry";
+
+let client = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, "pet2print_edge_phone_" + parseInt(Math.random() * 100, 10));
 
 client.onConnectionLost = onConnectionLost;
 
 function mqttBaglan() {
-    client.connect({ onSuccess: onConnect, useSSL: true });
+    console.log("HiveMQ sunucusuna bağlanılıyor...");
+    client.connect({ 
+        userName: MQTT_USER,
+        password: MQTT_PASS,
+        useSSL: true,
+        onSuccess: onConnect, 
+        onFailure: onConnectFail
+    });
 }
 
 function onConnect() {
-    mqttDurum.innerHTML = "Bağlı";
+    mqttDurum.innerHTML = "UI Bağlı";
     mqttDurum.style.color = "#00E676";
-    console.log("MQTT Broker'a bağlanıldı!");
+    console.log("MQTT Broker'ına başarıyla kilitlenildi!");
+}
+
+function onConnectFail(err) {
+    mqttDurum.innerHTML = "Yetki/Bağlantı Hatası";
+    mqttDurum.style.color = "#ff5252";
+    console.error("MQTT Bağlantı Hatası:", err.errorMessage);
+    setTimeout(mqttBaglan, 5000);
 }
 
 function onConnectionLost(responseObject) {
@@ -56,14 +76,14 @@ function veriGonder(kalinlik, durum) {
             "kaynak": "Edge_Phone"
         });
         let message = new Paho.MQTT.Message(payload);
-        message.destinationName = "pet2print/telemetry"; 
+        message.destinationName = TOPIC_TELEMETRY; 
         client.send(message);
     }
 }
 
 mqttBaglan();
 
-// ---- VERİ AKIŞINI BAŞLAT / DURDUR BUTON MANTIĞI ----
+// ---- VERİ AKIŞINI BAŞLAT / DURDUR ----
 telemetriBtn.addEventListener('click', () => {
     if (!telemetriAktif) {
         if (!client.isConnected()) {
@@ -278,7 +298,7 @@ function goruntuIsle() {
             cv.line(dst, sagUst, sagAlt, color, 3);
         }
 
-        // --- YENİ YENİDEN KALİBRE EDİLMİŞ KATSAYI (2.14 -> 1.75 DÜZELTMESİ) ---
+        // --- Kalibrasyon ---
         const PIKSEL_CAPPAN = 0.0795; 
         
         let kalinlikFloat = ortalamaKalinlikPiksel * PIKSEL_CAPPAN;
